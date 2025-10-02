@@ -1,52 +1,79 @@
 package edu.t1;
-
 import java.lang.reflect.Field;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
+import java.util.HashMap;
 import java.util.Map;
 
-public class Res {
-    //суть метода в том, что он смотрит на классе объекта аннотацию
-    // и если она есть - то скидывает значения всех полей до состояния
-    //указанного в конфиг классе этой аннотации
-    public void reset(Object... obj) throws Exception {
-        Default def;
-        boolean isDefExists = false;
-        Class def_class_value = null;
-        if (obj != null) {
-            for (Object o : obj) {
-                List<Field> fields =new ArrayList<>();
-                Class clz;
-                clz = o.getClass();
-                while (clz != null) {
-                    Field[] fields2 = clz.getDeclaredFields();
-                    fields.addAll(Arrays.stream(fields2).toList());
-                    clz = clz.getSuperclass();
-                }
 
-                for (Field f : fields) {
-                    if ( o.getClass().isAnnotationPresent(Default.class)) {
-                        def = o.getClass().getAnnotation(Default.class);
-                        def_class_value = def.value();
-                    }
-
-                    Class fieldtype = f.getType();
-                    if (def_class_value != null) {
-                        isDefExists = false;
-                        Field[] defValueFields = def_class_value.getDeclaredFields();
-                        for (Field f_def : defValueFields) {
-                            if (fieldtype.equals(f_def.getType())) {
-                                f.set(o, f_def.get(def_class_value.newInstance()));
-                                isDefExists = true;
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
+public final class Res {
+    
+    /**
+     * Сбрасывает значения полей объекта согласно конфигурации аннотации @Default.
+     *
+     * @param objects объекты, чьи поля будут сброшены
+     */
+    public static void reset(Object... objects) throws IllegalAccessException, InstantiationException {
+        for (Object object : objects) {
+            reset(object); // Обрабатываем объект отдельно
         }
     }
 
-}
+    private static void reset(Object object) throws IllegalAccessException, InstantiationException {
+        Class<?> clazz = object.getClass();
+        
+        // Проверяем наличие аннотации @Default
+        if (!clazz.isAnnotationPresent(Default.class)) return;
+        
+        // Получаем класс конфигурации
+        Class<?> configClass = clazz.getAnnotation(Default.class).value();
+        
+        Map<String, Object> defaultValues = extractDefaults(configClass); // извлекаем дефолтные значения
+        
+        setDefaultValues(object, defaultValues); // применяем дефолтные значения
+    }
 
+    /**
+     * Возвращает карту значений полей из указанного класса конфигурации.
+     *
+     * @param configClass класс конфигурации
+     * @return карта имен полей и их значений
+     */
+    private static Map<String, Object> extractDefaults(Class<?> configClass) throws IllegalAccessException, InstantiationException {
+        Map<String, Object> defaults = new HashMap<>();
+        Field[] declaredFields = configClass.getDeclaredFields();
+        
+        // Создаем экземпляр класса конфигурации
+        Object instance = configClass.newInstance();
+        
+        for (Field field : declaredFields) {
+            field.setAccessible(true); // открываем доступ к приватным полям
+            defaults.put(field.getName(), field.get(instance)); // сохраняем значения полей
+        }
+        
+        return defaults;
+    }
+
+    /**
+     * Устанавливает значения полей объекта согласно карте дефолтных значений.
+     *
+     * @param object       объект, чье состояние обновляется
+     * @param defaultValues карта имени поля и его дефолтного значения
+     */
+    private static void setDefaultValues(Object object, Map<String, Object> defaultValues) throws IllegalAccessException {
+        Class<?> currentClass = object.getClass();
+        
+        while (currentClass != null) { // идём вверх по цепочке наследования
+            Field[] declaredFields = currentClass.getDeclaredFields();
+            
+            for (Field field : declaredFields) {
+                field.setAccessible(true); // разрешаем доступ к приватным полям
+                
+                String fieldName = field.getName();
+                if (defaultValues.containsKey(fieldName)) {
+                    field.set(object, defaultValues.get(fieldName));
+                }
+            }
+            
+            currentClass = currentClass.getSuperclass(); // переходим к суперклассу
+        }
+    }
+}
